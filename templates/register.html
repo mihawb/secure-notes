@@ -1,0 +1,107 @@
+<html>
+<body>
+  <form action={{ url_for('register') }} method="post">
+
+    <label for="username">Username: </label>
+    <input type="text" id="username" name="username"><span id="infou"></span><br>
+
+    <label for="username">Email: </label>
+    <input type="text" id="email" name="email"><span id="infoe"></span><br>
+
+    <label for="password">Password: </label>
+    <input type="password" id="password" name="password"><span id="infop"></span><br>
+
+    <label for="password">Repeat password: </label>
+    <input type="password" id="rpassword" name="rpassword"><span id="inforp"></span><br>
+
+    <input type="submit" value="Submit" id="submitbtn" disabled>
+  </form>
+  <a href={{ url_for('login') }}>
+		<button id="redirect">Go back</button>
+	</a>
+
+  {% block javascript %}
+    <script type="text/javascript">
+      const username = document.getElementById('username')
+      const infou = document.getElementById('infou')
+      const email = document.getElementById('email')
+      const infoe = document.getElementById('infoe')
+      const password = document.getElementById('password')
+      const infop = document.getElementById('infop')
+      const rpassword = document.getElementById('rpassword')
+      const inforp = document.getElementById('inforp')
+      const submitbtn = document.getElementById('submitbtn')
+
+      let validUsername = false
+      let validEmail = false
+      let validPassword = false
+
+      const checkSubmitable = () => {
+        if (validEmail && validPassword) submitbtn.disabled = false
+        else submitbtn.disabled = true
+      }
+
+      const validateUsername = () => {
+        const usernamePattern = /^[a-zA-Z0-9]+$/
+        if (!usernamePattern.test(username.value)) {
+          validUsername = false
+          infou.innerText = 'Usernames can only contain lower-, uppercase, and numeric characters.'
+          return
+        }
+
+        fetch(`http://localhost:5000/user/check?name=${username.value}`) // zmienic po postawieniu kontenera odpowiednio
+          .then(res => res.text())
+	        .then(body => {
+            if (body === 'F') {
+              validUsername = true
+              infou.innerText = ''
+            } else {
+              validUsername = false
+              infou.innerText = 'Username already taken.'
+            }
+          })
+
+        checkSubmitable()
+      }
+
+      const validateEmail = () => {
+        const emailPattern = /^.+@[a-zA-Z0-9\-]+(\.[a-zA-Z]+)+$/
+
+        if (emailPattern.test(email.value)) {
+          validEmail = true
+          infoe.innerText = ''
+        } else {
+          validEmail = false
+          infoe.innerText = 'Invalid email address'
+        }
+
+        checkSubmitable()
+      }
+
+      const validatePassword = () => {
+        const passwdPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/
+        let vp1 = false, vp2 = false
+        if (passwdPattern.test(password.value)) {
+          vp1 = true
+          infop.innerText = ''
+        } else
+          infop.innerText = 'Password must contain at least 1 lower-, uppercase, numeric, and special character and be 8 chars long.'
+
+        if (password.value === rpassword.value) {
+          vp2 = true
+          inforp.innerText = ''
+        } else
+          inforp.innerText = 'Passwords do not match.'
+
+        validPassword = vp1 && vp2
+        checkSubmitable()
+      }
+
+      username.addEventListener('input', validateUsername)
+      email.addEventListener('input', validateEmail)
+      password.addEventListener('input', validatePassword)
+      rpassword.addEventListener('input', validatePassword)
+    </script>
+  {% endblock %}
+</body>
+</html>

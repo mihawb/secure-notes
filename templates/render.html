@@ -1,0 +1,11 @@
+<html>
+<body>
+<h1> Your rendered Markdown: </h1>
+<h2>{{ title | safe }}</h2>
+{{ rendered_note | safe }}
+<br>
+<form action={{ url_for('dashboard') }}>
+  <input type="submit" value="Go back" />
+</form>
+</body>
+</html>

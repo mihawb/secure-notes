@@ -1,0 +1,12 @@
+<html>
+<body>
+	<h1>Wrong form data</h1>
+	<p>
+		It appears that registration form with incorrect data slipped through frontend validation.<br/>
+		Try registering again, complying to form restrictions.
+	</p>
+	<form action={{ url_for('register') }}>
+		<input type="submit" value="Go back">
+	</form>
+</body>
+</html>

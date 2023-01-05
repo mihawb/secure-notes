@@ -1,0 +1,19 @@
+<html>
+<body>
+  <h1>Hello {{ username | safe }}!</h1>
+
+  {% if notes|length > 0 %}
+    <h1> Your notes: </h1>
+    <ul>
+      {% for note in notes %}
+        <li><a href="{{ url_for('render') }}/{{ note.id }}">{{ note.title }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <form action={{ url_for('logout') }}>
+    <input type="submit" value="Log out" />
+  </form>
+
+</body>
+</html>
