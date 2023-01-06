@@ -165,7 +165,7 @@ def create():
       aes = AES.new(passphrase_bytes, AES.MODE_CBC, passphrase_bytes)
       result_note = aes.encrypt(data)
 
-      arg2 = argon2.using(salt=passphrase_bytes, type='ID', memory_cost=65536, time_cost=3, parallelism=4)
+      arg2 = argon2.using(type='ID', memory_cost=65536, time_cost=3, parallelism=4)
       passphrase_argon2 = arg2.hash(passphrase)
 
     con = sqlite3.connect(DATABASE)
@@ -189,14 +189,49 @@ def render(user, rendered_id):
   db = sqlite3.connect(DATABASE)
   sql = db.cursor()
   # note ids are global, not per user, so we want to check whether given user authored note with given id
-  get_note_query = 'SELECT username, public, encrypted, passphrase, title, note FROM notes WHERE id == ? AND username == ?'
+  get_note_query = 'SELECT id, username, public, encrypted, title, note FROM notes WHERE id == ? AND username == ?'
   sql.execute(get_note_query, (rendered_id, user))
 
   try:
-    username, public, encrypted, passphrase, title, rendered_note = sql.fetchone()
+    id_note, username, public, encrypted, title, rendered_note = sql.fetchone()
+
     if not public and username != current_user.id:
       return 'Access to note forbidden', 403
-    return render_template('render.html', author=username, public=bool(public), encrypted=bool(encrypted), title=title, rendered_note=rendered_note)
+
+    return render_template('render.html', rendered_id=id_note, author=username, public=bool(public), encrypted=bool(encrypted), title=title, rendered_note=rendered_note)
+  except:
+    return 'Note not found', 404
+
+
+@app.route('/decrypt/<user>/<rendered_id>', methods=['POST'])
+@login_required
+def decrypt(user, rendered_id):
+  passphrase = request.form.get('passphrase')
+
+  db = sqlite3.connect(DATABASE)
+  sql = db.cursor()
+  # note ids are global, not per user, so we want to check whether given user authored note with given id
+  get_note_query = 'SELECT id, username, public, encrypted, passphrase, title, note FROM notes WHERE id == ? AND username == ?'
+  sql.execute(get_note_query, (rendered_id, user))
+
+  try:
+    id_note, username, public, encrypted, passphrase_hash, title, encrypted_note = sql.fetchone()
+
+    if not encrypted:
+      return redirect(f'/render/{user}/{rendered_id}')
+
+    if not public and username != current_user.id:
+      return 'Access to note forbidden', 403
+
+    if not argon2.verify(passphrase, passphrase_hash):
+      return 'Access to note forbidden', 403
+
+    block_length = 16 
+    passphrase_bytes = passphrase.encode().ljust(block_length, b'a')[:block_length]
+    aes = AES.new(passphrase_bytes, AES.MODE_CBC, passphrase_bytes)
+    decrypted_note = aes.decrypt(encrypted_note).decode()
+
+    return render_template('render.html', rendered_id=id_note, author=username, public=bool(public), encrypted=not bool(encrypted), title=title, rendered_note=decrypted_note)
   except:
     return 'Note not found', 404
 

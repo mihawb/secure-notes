@@ -17,6 +17,14 @@
     {{ rendered_note | safe }}
   <br>
 
+  {% if encrypted is true %}
+    <form action={{ url_for('decrypt', user=author, rendered_id=rendered_id) }} method="post">
+      <label for="passphrase">Enter passphrase to decrypt</label>
+      <input type="text" id="passphrase" name="passphrase">
+      <input type="submit" value="Decrypt" />
+    </form>
+  {% endif %}
+
   <form action={{ url_for('dashboard') }}>
     <input type="submit" value="Go back" />
   </form>
