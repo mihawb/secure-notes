@@ -1,14 +1,14 @@
 <html>
 <body>
 
-  <p>Author: {{ author }}</p>
+  <p>Author: <strong>{{ author }}</strong></p>
 
-  <label for="public">Publicly available:</label>
+  <label for="public">Publicly available</label>
   <input type="checkbox" name="public" disabled
     {% if public is true %} checked {% endif %}
   >
 
-  <label for="encrypted">Encrypted:</label>
+  <label for="encrypted">Encrypted</label>
   <input type="checkbox" name="encrypted" disabled
     {% if encrypted is true %} checked {% endif %}
   >

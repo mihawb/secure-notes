@@ -3,7 +3,7 @@
   <h1>Hello {{ username | safe }}!</h1>
 
   {% if notes|length > 0 %}
-    <h1> Your notes: </h1>
+    <h1> Your notes</h1>
     <ul>
       {% for note in notes %}
         <li><a href="{{ url_for('render', user=username, rendered_id=note.id) }}">{{ note.title }}</a></li>
