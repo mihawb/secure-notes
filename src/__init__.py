@@ -4,6 +4,7 @@ from flask_cors import CORS
 from re import search
 import markdown
 from passlib.hash import argon2
+from Crypto.Cipher import AES
 import sqlite3
 import os, requests
 
@@ -16,8 +17,10 @@ login_manager.init_app(app)
 app.secret_key = os.getenv('APP_SECRET_KEY')
 DATABASE = './sqlite3.db'
 
+
 class User(UserMixin):
   pass
+
 
 @login_manager.user_loader
 def user_loader(username):
@@ -52,56 +55,59 @@ def login():
   if request.method == 'GET':
     return render_template('login.html')
   if request.method == "POST":
-    username = request.form.get("username")
-    password = request.form.get("password")
+    username = request.form.get('username')
+    password = request.form.get('password')
     user = user_loader(username)
     if user is None:
-      return "Nieprawidłowy login lub hasło", 401
+      return 'Incorrect login or password', 401
     if argon2.verify(password, user.password):
       login_user(user)
       return redirect('/dashboard')
     else:
-      return "Nieprawidłowy login lub hasło", 401
+      return 'Incorrect login or password', 401
+
 
 @app.route("/logout")
 def logout():
     logout_user()
     return redirect("/")
 
+
 @app.route('/user/register', methods=['GET', 'POST'])
 def register():
-    if request.method == 'GET':
-        return render_template('register.html')
-    if request.method == 'POST':
-        con = sqlite3.connect(DATABASE)
-        sql = con.cursor()
+  if request.method == 'GET':
+    return render_template('register.html')
+  if request.method == 'POST':
+    con = sqlite3.connect(DATABASE)
+    sql = con.cursor()
 
-        email = request.form.get('email')
-        username = request.form.get('username')
-        password = request.form.get('password')
+    email = request.form.get('email')
+    username = request.form.get('username')
+    password = request.form.get('password')
 
-        em_check_valid = bool(search(r'', email))
-        pw_check_valid = bool(search(r'', password))
-        un_check_valid = bool(search(r'', username))
-        sql.execute('SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);', (username,))
-        un_check_taken = bool(sql.fetchone()[0])
+    print(email, username, password)
 
-        if not (em_check_valid and pw_check_valid and un_check_taken and un_check_valid):
-          return redirect('/badform')
+    em_check_valid = bool(search(r'^.+@[a-zA-Z0-9\-]+(\.[a-zA-Z]+)+$', email))
+    pw_check_valid = bool(search(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$', password))
+    un_check_valid = bool(search(r'^[a-zA-Z0-9]+$', username))
+    sql.execute('SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);', (username,))
+    un_check_taken = not bool(sql.fetchone()[0])
 
-        s = username.ljust(8, 'a').encode()
-        arg2 = argon2.using(salt=s, type='ID', memory_cost=65536, time_cost=3, parallelism=4)
-        password_argon2 = arg2.hash(password)
+    print(em_check_valid, pw_check_valid, un_check_taken, un_check_valid)
 
-        register_user_query = 'INSERT INTO USERS (username, email, password) VALUES (?, ?, ?);'
-        sql.execute(register_user_query, (username, email, password_argon2))
+    if not (em_check_valid and pw_check_valid and un_check_taken and un_check_valid):
+      return "Incorrect form data. Sumbit again, complying to restrictions.", 406
 
-        con.commit()        
-        return redirect('/')
+    s = username.ljust(8, 'a').encode()
+    arg2 = argon2.using(salt=s, type='ID', memory_cost=65536, time_cost=3, parallelism=4)
+    password_argon2 = arg2.hash(password)
 
-@app.route('/badform')
-def badform():
-  return render_template('badform.html')
+    register_user_query = 'INSERT INTO USERS (username, email, password) VALUES (?, ?, ?);'
+    sql.execute(register_user_query, (username, email, password_argon2))
+      
+    con.commit()        
+    return redirect('/')
+
 
 @app.route('/user/check', methods=['GET'])
 def check_if_user_exists():
@@ -117,6 +123,7 @@ def check_if_user_exists():
     if result: return 'T'
     else: return 'F'
 
+
 @app.route("/dashboard", methods=['GET'])
 @login_required
 def dashboard ():
@@ -131,40 +138,77 @@ def dashboard ():
 
     return render_template("dashboard.html", username=username, notes=notes)
 
-@app.route("/render", methods=['POST'])
+
+@app.route('/create', methods=['GET', 'POST'])
 @login_required
-def render():
-  md = request.form.get("markdown","")
-  rendered = markdown.markdown(md)
-  username = current_user.id
+def create():
+  if request.method == 'GET':
+    return render_template('create.html')
+
+  if request.method == 'POST':
+    public = request.form.get('public')
+    passphrase = request.form.get('passphrase')
+    username = current_user.id
+    title = request.form.get('title')
+    source_md = request.form.get('markdown', '')
+    rendered = markdown.markdown(source_md)
+    result_note = rendered
+    passphrase_argon2 = ''
+
+    if passphrase:
+      block_length = 16
+      data = rendered.encode()
+      data = data + b'\x00' * (block_length - len(data) % block_length) 
+      passphrase_bytes = passphrase.encode().ljust(block_length, b'a')[:block_length]
+      # passphrase is manipulated but in deterministic way, should not cause problems
+
+      aes = AES.new(passphrase_bytes, AES.MODE_CBC, passphrase_bytes)
+      result_note = aes.encrypt(data)
+
+      arg2 = argon2.using(salt=passphrase_bytes, type='ID', memory_cost=65536, time_cost=3, parallelism=4)
+      passphrase_argon2 = arg2.hash(passphrase)
+
+    con = sqlite3.connect(DATABASE)
+    sql = con.cursor()
+    post_note_query = 'INSERT INTO NOTES (username, public, encrypted, passphrase, title, note) VALUES (?, ?, ?, ?, ?, ?);'
+    sql.execute(post_note_query, (username, bool(public), bool(passphrase), passphrase_argon2, title, result_note))
+    con.commit()
+
+    # sql.last_row_id() is not thread-safe
+    get_scope_identity_query = 'SELECT id, username FROM NOTES WHERE username == ? ORDER BY id DESC LIMIT 1;'
+    sql.execute(get_scope_identity_query, (username,))
+    scope_identity, username_prim = sql.fetchone()
+
+    # safe formating, no third-party input
+    return redirect(f'/render/{username_prim}/{scope_identity}')
+
+
+@app.route('/render/<user>/<rendered_id>', methods=['GET'])
+@login_required
+def render(user, rendered_id):
   db = sqlite3.connect(DATABASE)
   sql = db.cursor()
-  sql.execute(f"INSERT INTO notes (username, note) VALUES ('{username}', '{rendered}')")
-  db.commit()
-  return render_template("markdown.html", rendered=rendered)
+  # note ids are global, not per user, so we want to check whether given user authored note with given id
+  get_note_query = 'SELECT username, public, encrypted, passphrase, title, note FROM notes WHERE id == ? AND username == ?'
+  sql.execute(get_note_query, (rendered_id, user))
 
-@app.route("/render/<rendered_id>")
-@login_required
-def render_old(rendered_id):
-    db = sqlite3.connect(DATABASE)
-    sql = db.cursor()
-    get_note_query = 'SELECT username, title, note FROM notes WHERE id == ?'
-    sql.execute(get_note_query, (rendered_id,))
-
-    try:
-        username, title, rendered_note  = sql.fetchone()
-        if username != current_user.id:
-            return "Access to note forbidden", 403
-        return render_template("render.html", title=title, rendered_note=rendered_note)
-    except:
-        return "Note not found", 404
+  try:
+    username, public, encrypted, passphrase, title, rendered_note = sql.fetchone()
+    if not public and username != current_user.id:
+      return 'Access to note forbidden', 403
+    return render_template('render.html', author=username, public=bool(public), encrypted=bool(encrypted), title=title, rendered_note=rendered_note)
+  except:
+    return 'Note not found', 404
 
 
 if __name__ == '__main__':
+  print('DATABASE INITIALISATION STARTED...')
   con = sqlite3.connect(DATABASE)
   sql = con.cursor()
   sql.execute('CREATE TABLE IF NOT EXISTS USERS (username VARCHAR(32), email VARCHAR(96), password VARCHAR(128));')
-  sql.execute('CREATE TABLE IF NOT EXISTS NOTES (id INTEGER PRIMARY KEY, username VARCHAR(32), title VARCHAR(32), note VARCHAR(1024));')
+  sql.execute('CREATE TABLE IF NOT EXISTS NOTES (id INTEGER PRIMARY KEY, public BOOLEAN, encrypted BOOLEAN, passphrase VARCHAR(128), username VARCHAR(32), title VARCHAR(32), note BLOB);')
   con.commit()
+  con.close()
+  print('DATABASE INITIALISATION FINISHED')
 
-  app.run('0.0.0.0', 5000)
+  # app.run('0.0.0.0', 5000)

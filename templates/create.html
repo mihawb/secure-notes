@@ -1,0 +1,31 @@
+<html>
+<body>
+	<h1>Create a new note</h1>
+
+	<form action={{ url_for('create') }} method="post">
+
+		<label for="title">Title: </label>
+    <input type="text" id="title" name="title">
+		<br>
+
+		<label for="markdown">Input your markdown note here:</label><br>
+		<textarea id="markdown" name="markdown" rows="20" cols="100"></textarea>
+		<br>
+
+		<label for "public">Publicly available</label>
+		<input type="checkbox" id="public" name="public"/>
+		<br/>
+
+		<label for "passphrase">Passphrase (leave blank if you want your note unencrypted)</label>
+		<input type="text" id="passphrase" name="passphrase"/>
+		<br/>
+
+		<input type="submit" value="Submit">
+	</form>
+
+	<form action={{ url_for('dashboard') }}>
+		<input type="submit" value="Cancel and go back" />
+	</form>
+
+</body>
+</html>

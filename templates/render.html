@@ -1,11 +1,25 @@
 <html>
 <body>
-<h1> Your rendered Markdown: </h1>
-<h2>{{ title | safe }}</h2>
-{{ rendered_note | safe }}
-<br>
-<form action={{ url_for('dashboard') }}>
-  <input type="submit" value="Go back" />
-</form>
+
+  <p>Author: {{ author }}</p>
+
+  <label for="public">Publicly available:</label>
+  <input type="checkbox" name="public" disabled
+    {% if public is true %} checked {% endif %}
+  >
+
+  <label for="encrypted">Encrypted:</label>
+  <input type="checkbox" name="encrypted" disabled
+    {% if encrypted is true %} checked {% endif %}
+  >
+
+  <h3>{{ title | safe }}</h3>
+    {{ rendered_note | safe }}
+  <br>
+
+  <form action={{ url_for('dashboard') }}>
+    <input type="submit" value="Go back" />
+  </form>
+
 </body>
 </html>

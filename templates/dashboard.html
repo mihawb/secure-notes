@@ -6,10 +6,14 @@
     <h1> Your notes: </h1>
     <ul>
       {% for note in notes %}
-        <li><a href="{{ url_for('render') }}/{{ note.id }}">{{ note.title }}</a></li>
+        <li><a href="{{ url_for('render', user=username, rendered_id=note.id) }}">{{ note.title }}</a></li>
       {% endfor %}
     </ul>
   {% endif %}
+
+  <form action={{ url_for('create') }}>
+    <input type="submit" value="Create new note" />
+  </form>
 
   <form action={{ url_for('logout') }}>
     <input type="submit" value="Log out" />
