@@ -1,3 +1,5 @@
 */__pycache__/
 sqlite3.exe
 sqlite3.db
+banners/*
+!banners/banner_default.png

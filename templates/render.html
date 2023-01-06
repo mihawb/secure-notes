@@ -11,7 +11,11 @@
   <label for="encrypted">Encrypted</label>
   <input type="checkbox" name="encrypted" disabled
     {% if encrypted is true %} checked {% endif %}
-  >
+  ><br/>
+
+  {% if encrypted is false %}
+    <img width=512 src="{{ url_for('banner', user=author, note_id=rendered_id) }}">
+  {% endif %}
 
   <h3>{{ title | safe }}</h3>
     {{ rendered_note | safe }}

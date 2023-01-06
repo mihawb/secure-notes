@@ -6,11 +6,12 @@ import markdown
 from passlib.hash import argon2
 from Crypto.Cipher import AES
 import sqlite3
-import os, requests
+import os, requests, mimetypes, glob
 
 
 template_dir = os.path.abspath('../templates')
-app = Flask(__name__, template_folder=template_dir)
+static_dir = os.path.abspath('../static')
+app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 CORS(app) # probably better to set up route specific cors https://flask-cors.readthedocs.io/en/latest/#resource-specific-cors
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -148,12 +149,13 @@ def create():
   if request.method == 'POST':
     public = request.form.get('public')
     passphrase = request.form.get('passphrase')
+    passphrase_argon2 = ''
     username = current_user.id
     title = request.form.get('title')
     source_md = request.form.get('markdown', '')
     rendered = markdown.markdown(source_md)
     result_note = rendered
-    passphrase_argon2 = ''
+    banner_url = request.form.get('banner')
 
     if passphrase:
       block_length = 16
@@ -178,6 +180,15 @@ def create():
     get_scope_identity_query = 'SELECT id, username FROM NOTES WHERE username == ? ORDER BY id DESC LIMIT 1;'
     sql.execute(get_scope_identity_query, (username,))
     scope_identity, username_prim = sql.fetchone()
+
+    try:
+      res = requests.get(banner_url)
+      content_type = res.headers['content-type']
+      ext = mimetypes.guess_extension(content_type)
+      with open(f"../banners/banner_{username}_{scope_identity}{ext}", "wb") as f:
+        f.write(res.content)
+    except Exception as e:
+      print('Could not save banner image:', e)
 
     # safe formating, no third-party input
     return redirect(f'/render/{username_prim}/{scope_identity}')
@@ -234,6 +245,16 @@ def decrypt(user, rendered_id):
     return render_template('render.html', rendered_id=id_note, author=username, public=bool(public), encrypted=not bool(encrypted), title=title, rendered_note=decrypted_note)
   except:
     return 'Note not found', 404
+
+
+@app.route('/banner/<user>/<note_id>')
+@login_required
+def banner(user, note_id):
+  banners = glob.glob(f'../banners/banner_{user}_{note_id}.*')
+  try:
+    return send_file(banners[0])
+  except:
+    return send_file('../banners/banner_default.png')
 
 
 if __name__ == '__main__':
