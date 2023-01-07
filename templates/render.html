@@ -15,11 +15,11 @@
 
   {% if encrypted is false %}
     <img width=512 src="{{ url_for('banner', user=author, note_id=rendered_id) }}">
-  {% endif %}
-
-  <h3>{{ title | safe }}</h3>
+    
+    <h3>{{ title | safe }}</h3>
     {{ rendered_note | safe }}
-  <br>
+    <br>
+  {% endif %}
 
   {% if encrypted is true %}
     <form action={{ url_for('decrypt', user=author, rendered_id=rendered_id) }} method="post">

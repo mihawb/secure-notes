@@ -44,7 +44,7 @@
           return
         }
 
-        fetch(`${window.location.origin}/user/check?name=${username.value}`)
+        fetch(`${window.location.origin}/check/user?name=${username.value}`)
           .then(res => res.text())
 	        .then(body => {
             if (body === 'F') {

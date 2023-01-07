@@ -1,12 +1,11 @@
 from flask import Flask, render_template, request, redirect, send_file, url_for
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
-from re import search
-import markdown
 from passlib.hash import argon2, md5_crypt
 from Crypto.Cipher import AES
-import sqlite3
+import sqlite3, markdown, bleach
 import os, requests, mimetypes, glob, time
+from re import search
 
 
 template_dir = os.path.abspath('../templates')
@@ -58,8 +57,11 @@ def login():
   if request.method == "POST":
     username = request.form.get('username')
     password = request.form.get('password')
-    user = user_loader(username)
 
+    if not search(r'^[a-zA-Z0-9]+$', username):
+      return 'Incorrect login or password', 401
+
+    user = user_loader(username)
     if user is None:
       return 'Incorrect login or password', 401
 
@@ -93,11 +95,11 @@ def register():
     em_check_valid = bool(search(r'^.+@[a-zA-Z0-9\-]+(\.[a-zA-Z]+)+$', email))
     pw_check_valid = bool(search(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$', password))
     un_check_valid = bool(search(r'^[a-zA-Z0-9]+$', username))
-    sql.execute('SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);', (username,))
-    un_check_taken = not bool(sql.fetchone()[0])
-    con.commit()
+    if un_check_valid:
+      sql.execute('SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);', (username,))
+      un_check_taken = not bool(sql.fetchone()[0])
 
-    if not (em_check_valid and pw_check_valid and un_check_taken and un_check_valid):
+    if not (em_check_valid and pw_check_valid and un_check_valid and un_check_taken):
       return 'Incorrect form data. Sumbit again, complying to restrictions.', 406
 
     s = username.ljust(8, 'a').encode()
@@ -121,18 +123,16 @@ def check_if_field_exists(field):
 
     # conditional in order to avoid querying
     # SELECT ... FROM USERS WHERE ? = ?
-    # which would be amusingly easy to expoit
+    # which would be amusingly easy to exploit
     if field == 'user':
       check_user_query = 'SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);'
       sql.execute(check_user_query, (name,))
       result = sql.fetchone()[0]
-      con.commit()
 
     elif field == 'email':
       check_email_query = 'SELECT EXISTS(SELECT 1 FROM USERS WHERE email = ?);'
       sql.execute(check_email_query, (name,))
       result = sql.fetchone()[0]
-      con.commit()
 
     else:
       return 'Bad request', 400
@@ -159,22 +159,19 @@ def requestreset():
     except:
       username = None
       email = None
-    con.commit()
 
     if not username:
       return render_template('email.html')
 
     validuntil = int(time.time()) + 3600
-    username = username
     checksum = md5_crypt.hash(f'{username}{validuntil}').split('$')[-1]
 
-    save_reset_req_query = 'INSERT INTO RESETPASSWD (username, validuntil, checksum) VALUES (?, ?, ?);'
+    save_reset_req_query = 'INSERT INTO RESET (username, validuntil, checksum) VALUES (?, ?, ?);'
     sql.execute(save_reset_req_query, (username, validuntil, checksum))
     con.commit()
-
-    link = url_for('resetpassword', username=username, checksum=checksum)
-
     con.close()
+
+    link = url_for('resetpassword', username=username, checksum=checksum, _external=True)
     return render_template('email.html', link=link, email=email)
 
 
@@ -186,10 +183,9 @@ def resetpassword():
 
     con = sqlite3.connect(DATABASE)
     sql = con.cursor()
-    check_if_req_valid_query = 'SELECT validuntil FROM RESETPASSWD WHERE username == ? AND checksum == ?;'
+    check_if_req_valid_query = 'SELECT validuntil FROM RESET WHERE username == ? AND checksum == ?;'
     sql.execute(check_if_req_valid_query, (username, checksum))
     validuntil = sql.fetchone()
-    con.commit()
 
     if not (validuntil and validuntil[0] > int(time.time())):
       return 'Invalid reset link', 403
@@ -204,10 +200,9 @@ def resetpassword():
     
     con = sqlite3.connect(DATABASE)
     sql = con.cursor()
-    check_if_req_valid_query = 'SELECT validuntil FROM RESETPASSWD WHERE username == ? AND checksum == ?;'
+    check_if_req_valid_query = 'SELECT validuntil FROM RESET WHERE username == ? AND checksum == ?;'
     sql.execute(check_if_req_valid_query, (username, checksum))
     validuntil = sql.fetchone()
-    con.commit()
 
     if not (validuntil and validuntil[0] > int(time.time())):
       return 'Invalid reset link', 403
@@ -224,7 +219,7 @@ def resetpassword():
     sql.execute(reset_password_query, (password_argon2, username))
     con.commit()
 
-    remove_request_query = 'DELETE FROM RESETPASSWD WHERE username == ? AND checksum == ?;'
+    remove_request_query = 'DELETE FROM RESET WHERE username == ? AND checksum == ?;'
     sql.execute(remove_request_query, (username, checksum))
     con.commit()
 
@@ -234,15 +229,14 @@ def resetpassword():
 
 @app.route("/dashboard", methods=['GET'])
 @login_required
-def dashboard ():
+def dashboard():
   if request.method == 'GET':
     username = current_user.id
-    db = sqlite3.connect(DATABASE)
-    sql = db.cursor()
+    con = sqlite3.connect(DATABASE)
+    sql = con.cursor()
     notes_query = 'SELECT id, title FROM notes WHERE username == ?'
     sql.execute(notes_query, (username,))
     result = sql.fetchall()
-    con.commit()
     notes = [{'id': i, 'title': t} for (i, t) in result]
 
     con.close()
@@ -260,16 +254,18 @@ def create():
     passphrase = request.form.get('passphrase')
     passphrase_argon2 = ''
     username = current_user.id
-    title = request.form.get('title')
+    source_title = request.form.get('title')
+    title = bleach.clean(source_title)
     source_md = request.form.get('markdown', '')
-    rendered = markdown.markdown(source_md)
-    result_note = rendered
+    bleached_md = bleach.clean(source_md)
+    rendered = markdown.markdown(bleached_md)
+    result_note = rendered # in case of encryption later on
     banner_url = request.form.get('banner')
 
     if passphrase:
       block_length = 16
       data = rendered.encode()
-      data = data + b'\x00' * (block_length - len(data) % block_length) 
+      data = data + b'\x00' * (block_length - len(data) % block_length)
       passphrase_bytes = passphrase.encode().ljust(block_length, b'a')[:block_length]
       # passphrase is manipulated but in deterministic way, should not cause problems
 
@@ -289,16 +285,18 @@ def create():
     get_scope_identity_query = 'SELECT id, username FROM NOTES WHERE username == ? ORDER BY id DESC LIMIT 1;'
     sql.execute(get_scope_identity_query, (username,))
     scope_identity, username_prim = sql.fetchone()
-    con.commit()
 
-    try:
-      res = requests.get(banner_url)
-      content_type = res.headers['content-type']
-      ext = mimetypes.guess_extension(content_type)
-      with open(f"../banners/banner_{username}_{scope_identity}{ext}", "wb") as f:
-        f.write(res.content)
-    except Exception as e:
-      print('Could not save banner image:', e)
+    if banner_url:
+      try:
+        res = requests.get(banner_url)
+        content_type = res.headers['content-type']
+        if 'image' not in content_type: 
+          raise ValueError('Supplied file is not an image')
+        ext = mimetypes.guess_extension(content_type)
+        with open(f"../banners/banner_{username}_{scope_identity}{ext}", "wb") as f:
+          f.write(res.content)
+      except Exception as e:
+        print('Could not save banner image:', e)
 
     con.close()
     # safe formating, no third-party input
@@ -313,17 +311,17 @@ def render(user, rendered_id):
   # note ids are global, not per user, so we want to check whether given user authored note with given id
   get_note_query = 'SELECT id, username, public, encrypted, title, note FROM notes WHERE id == ? AND username == ?'
   sql.execute(get_note_query, (rendered_id, user))
-  con.commit()
-  con.close()
 
   try:
     id_note, username, public, encrypted, title, rendered_note = sql.fetchone()
+    con.close()
 
     if not public and username != current_user.id:
       return 'Access to note forbidden', 403
 
     return render_template('render.html', rendered_id=id_note, author=username, public=bool(public), encrypted=bool(encrypted), title=title, rendered_note=rendered_note)
   except:
+    con.close()
     return 'Note not found', 404
 
 
@@ -337,11 +335,10 @@ def decrypt(user, rendered_id):
   # note ids are global, not per user, so we want to check whether given user authored note with given id
   get_note_query = 'SELECT id, username, public, encrypted, passphrase, title, note FROM notes WHERE id == ? AND username == ?'
   sql.execute(get_note_query, (rendered_id, user))
-  con.commit()
-  con.close()
 
   try:
     id_note, username, public, encrypted, passphrase_hash, title, encrypted_note = sql.fetchone()
+    con.close()
 
     if not encrypted:
       return redirect(f'/render/{user}/{rendered_id}')
@@ -359,6 +356,7 @@ def decrypt(user, rendered_id):
 
     return render_template('render.html', rendered_id=id_note, author=username, public=bool(public), encrypted=not bool(encrypted), title=title, rendered_note=decrypted_note)
   except:
+    con.close()
     return 'Note not found', 404
 
 
@@ -377,8 +375,8 @@ if __name__ == '__main__':
   con = sqlite3.connect(DATABASE)
   sql = con.cursor()
   sql.execute('CREATE TABLE IF NOT EXISTS USERS (username VARCHAR(32), email VARCHAR(96), password VARCHAR(128));')
-  sql.execute('CREATE TABLE IF NOT EXISTS NOTES (id INTEGER PRIMARY KEY, public BOOLEAN, encrypted BOOLEAN, passphrase VARCHAR(128), username VARCHAR(32), title VARCHAR(32), note BLOB);')
-  sql.execute('CREATE TABLE IF NOT EXISTS RESETPASSWD (username VARCHAR(32), validuntil DATETIME, checksum VARCHAR(128));')
+  sql.execute('CREATE TABLE IF NOT EXISTS NOTES (id INTEGER PRIMARY KEY, username VARCHAR(32), public BOOLEAN, encrypted BOOLEAN, passphrase VARCHAR(128), title VARCHAR(32), note BLOB);')
+  sql.execute('CREATE TABLE IF NOT EXISTS RESET (username VARCHAR(32), validuntil DATETIME, checksum VARCHAR(128));')
   con.commit()
   con.close()
   print('DATABASE INITIALISATION FINISHED')
