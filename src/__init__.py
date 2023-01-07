@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, make_response, redirect, send_file, url_for
+from flask import Flask, render_template, request, redirect, send_file, url_for
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
 from re import search
@@ -54,15 +54,19 @@ def request_loader(request):
 def login():
   if request.method == 'GET':
     return render_template('login.html')
+
   if request.method == "POST":
     username = request.form.get('username')
     password = request.form.get('password')
     user = user_loader(username)
+
     if user is None:
       return 'Incorrect login or password', 401
+
     if argon2.verify(password, user.password):
       login_user(user)
       return redirect('/dashboard')
+
     else:
       return 'Incorrect login or password', 401
 
@@ -77,6 +81,7 @@ def logout():
 def register():
   if request.method == 'GET':
     return render_template('register.html')
+
   if request.method == 'POST':
     con = sqlite3.connect(DATABASE)
     sql = con.cursor()
@@ -85,13 +90,12 @@ def register():
     username = request.form.get('username')
     password = request.form.get('password')
 
-    print(email, username, password)
-
     em_check_valid = bool(search(r'^.+@[a-zA-Z0-9\-]+(\.[a-zA-Z]+)+$', email))
     pw_check_valid = bool(search(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$', password))
     un_check_valid = bool(search(r'^[a-zA-Z0-9]+$', username))
     sql.execute('SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);', (username,))
     un_check_taken = not bool(sql.fetchone()[0])
+    con.commit()
 
     if not (em_check_valid and pw_check_valid and un_check_taken and un_check_valid):
       return 'Incorrect form data. Sumbit again, complying to restrictions.', 406
@@ -102,8 +106,9 @@ def register():
 
     register_user_query = 'INSERT INTO USERS (username, email, password) VALUES (?, ?, ?);'
     sql.execute(register_user_query, (username, email, password_argon2))
+    con.commit()
       
-    con.commit()        
+    con.close()        
     return redirect('/')
 
 
@@ -117,6 +122,7 @@ def check_if_user_exists():
     sql.execute(check_user_query, (username,))
     result = sql.fetchone()[0]
     con.commit()
+    con.close()
 
     if result: return 'T'
     else: return 'F'
@@ -130,7 +136,6 @@ def requestreset():
   if request.method == 'POST':
     reqinput = request.form.get('reqinput')
 
-    # teraz tu zrobic szukanie usera / maila w tabeli users
     con = sqlite3.connect(DATABASE)
     sql = con.cursor()
     check_user_email_query = 'SELECT username FROM USERS WHERE username == ? OR email == ?;'
@@ -151,8 +156,7 @@ def requestreset():
 
     link = url_for('resetpassword', username=username, checksum=checksum)
 
-    # na podstawie username i datetime generowac hash, zapisywac go w bazie i podawac do linku
-    # w linku ma byc po to, ze potem sobie moge z linka zczytac, porownac z baza i ewentualnie odrzucic falaszywy link
+    con.close()
     return render_template('email.html', link=link)
 
 
@@ -167,10 +171,12 @@ def resetpassword():
     check_if_req_valid_query = 'SELECT validuntil FROM RESETPASSWD WHERE username == ? AND checksum == ?;'
     sql.execute(check_if_req_valid_query, (username, checksum))
     validuntil = sql.fetchone()
+    con.commit()
 
     if not (validuntil and validuntil[0] > int(time.time())):
       return 'Invalid reset link', 403
 
+    con.close()
     return render_template('resetpassword.html', username=username, checksum=checksum)
 
   if request.method == 'POST':
@@ -218,8 +224,10 @@ def dashboard ():
     notes_query = 'SELECT id, title FROM notes WHERE username == ?'
     sql.execute(notes_query, (username,))
     result = sql.fetchall()
+    con.commit()
     notes = [{'id': i, 'title': t} for (i, t) in result]
 
+    con.close()
     return render_template("dashboard.html", username=username, notes=notes)
 
 
@@ -263,6 +271,7 @@ def create():
     get_scope_identity_query = 'SELECT id, username FROM NOTES WHERE username == ? ORDER BY id DESC LIMIT 1;'
     sql.execute(get_scope_identity_query, (username,))
     scope_identity, username_prim = sql.fetchone()
+    con.commit()
 
     try:
       res = requests.get(banner_url)
@@ -273,6 +282,7 @@ def create():
     except Exception as e:
       print('Could not save banner image:', e)
 
+    con.close()
     # safe formating, no third-party input
     return redirect(f'/render/{username_prim}/{scope_identity}')
 
@@ -280,11 +290,13 @@ def create():
 @app.route('/render/<user>/<rendered_id>', methods=['GET'])
 @login_required
 def render(user, rendered_id):
-  db = sqlite3.connect(DATABASE)
-  sql = db.cursor()
+  con = sqlite3.connect(DATABASE)
+  sql = con.cursor()
   # note ids are global, not per user, so we want to check whether given user authored note with given id
   get_note_query = 'SELECT id, username, public, encrypted, title, note FROM notes WHERE id == ? AND username == ?'
   sql.execute(get_note_query, (rendered_id, user))
+  con.commit()
+  con.close()
 
   try:
     id_note, username, public, encrypted, title, rendered_note = sql.fetchone()
@@ -302,11 +314,13 @@ def render(user, rendered_id):
 def decrypt(user, rendered_id):
   passphrase = request.form.get('passphrase')
 
-  db = sqlite3.connect(DATABASE)
-  sql = db.cursor()
+  con = sqlite3.connect(DATABASE)
+  sql = con.cursor()
   # note ids are global, not per user, so we want to check whether given user authored note with given id
   get_note_query = 'SELECT id, username, public, encrypted, passphrase, title, note FROM notes WHERE id == ? AND username == ?'
   sql.execute(get_note_query, (rendered_id, user))
+  con.commit()
+  con.close()
 
   try:
     id_note, username, public, encrypted, passphrase_hash, title, encrypted_note = sql.fetchone()
@@ -350,5 +364,3 @@ if __name__ == '__main__':
   con.commit()
   con.close()
   print('DATABASE INITIALISATION FINISHED')
-
-  # app.run('0.0.0.0', 5000)
