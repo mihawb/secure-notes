@@ -1,0 +1,17 @@
+<html>
+<body>
+	<h1>Your email inbox</h1>
+	<p>Let's assume this is your email inbox, since in this POC app I wouldn't have a way to send you reset link otherwise.</p>
+	<p>Normally, you would be redirected to login page.</p>
+	<p>If an account with supplied info exists, a reset link (valid for an hour) will appear below.</p>
+
+	{% if link is defined %}
+		<a href="{{ link }}">{{ link }}</a>
+		<br/><br/>
+	{% endif %}
+
+	<form action={{ url_for('login') }}>
+		<input type="submit" value="Go back" />
+	</form>
+</body>
+</html>

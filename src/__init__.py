@@ -1,18 +1,17 @@
-from flask import Flask, render_template, request, make_response, redirect, send_file
+from flask import Flask, render_template, request, make_response, redirect, send_file, url_for
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
 from re import search
 import markdown
-from passlib.hash import argon2
+from passlib.hash import argon2, md5_crypt
 from Crypto.Cipher import AES
 import sqlite3
-import os, requests, mimetypes, glob
+import os, requests, mimetypes, glob, time
 
 
 template_dir = os.path.abspath('../templates')
-static_dir = os.path.abspath('../static')
-app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
-CORS(app) # probably better to set up route specific cors https://flask-cors.readthedocs.io/en/latest/#resource-specific-cors
+app = Flask(__name__, template_folder=template_dir)
+CORS(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 app.secret_key = os.getenv('APP_SECRET_KEY')
@@ -74,7 +73,7 @@ def logout():
     return redirect("/")
 
 
-@app.route('/user/register', methods=['GET', 'POST'])
+@app.route('/register', methods=['GET', 'POST'])
 def register():
   if request.method == 'GET':
     return render_template('register.html')
@@ -94,10 +93,8 @@ def register():
     sql.execute('SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);', (username,))
     un_check_taken = not bool(sql.fetchone()[0])
 
-    print(em_check_valid, pw_check_valid, un_check_taken, un_check_valid)
-
     if not (em_check_valid and pw_check_valid and un_check_taken and un_check_valid):
-      return "Incorrect form data. Sumbit again, complying to restrictions.", 406
+      return 'Incorrect form data. Sumbit again, complying to restrictions.', 406
 
     s = username.ljust(8, 'a').encode()
     arg2 = argon2.using(salt=s, type='ID', memory_cost=65536, time_cost=3, parallelism=4)
@@ -110,7 +107,7 @@ def register():
     return redirect('/')
 
 
-@app.route('/user/check', methods=['GET'])
+@app.route('/user/check', methods=['GET']) # zamienic na /check/user i dodac drugi endpoint dla /check/email
 def check_if_user_exists():
   if request.method == 'GET':
     username = request.args.get('name')
@@ -123,6 +120,92 @@ def check_if_user_exists():
 
     if result: return 'T'
     else: return 'F'
+
+
+@app.route('/requestreset', methods=['GET', 'POST'])
+def requestreset():
+  if request.method == 'GET':
+    return render_template('requestreset.html')
+
+  if request.method == 'POST':
+    reqinput = request.form.get('reqinput')
+
+    # teraz tu zrobic szukanie usera / maila w tabeli users
+    con = sqlite3.connect(DATABASE)
+    sql = con.cursor()
+    check_user_email_query = 'SELECT username FROM USERS WHERE username == ? OR email == ?;'
+    sql.execute(check_user_email_query, (reqinput, reqinput))
+    username = sql.fetchone()
+    con.commit()
+
+    if not username:
+      return render_template('email.html')
+
+    validuntil = int(time.time()) + 3600
+    username = username[0]
+    checksum = md5_crypt.hash(f'{username}{validuntil}').split('$')[-1]
+
+    save_reset_req_query = 'INSERT INTO RESETPASSWD (username, validuntil, checksum) VALUES (?, ?, ?);'
+    sql.execute(save_reset_req_query, (username, validuntil, checksum))
+    con.commit()
+
+    link = url_for('resetpassword', username=username, checksum=checksum)
+
+    # na podstawie username i datetime generowac hash, zapisywac go w bazie i podawac do linku
+    # w linku ma byc po to, ze potem sobie moge z linka zczytac, porownac z baza i ewentualnie odrzucic falaszywy link
+    return render_template('email.html', link=link)
+
+
+@app.route('/resetpassword', methods=['GET', 'POST'])
+def resetpassword():
+  if request.method == 'GET':
+    username = request.args.get('username')
+    checksum = request.args.get('checksum')
+
+    con = sqlite3.connect(DATABASE)
+    sql = con.cursor()
+    check_if_req_valid_query = 'SELECT validuntil FROM RESETPASSWD WHERE username == ? AND checksum == ?;'
+    sql.execute(check_if_req_valid_query, (username, checksum))
+    validuntil = sql.fetchone()
+
+    if not (validuntil and validuntil[0] > int(time.time())):
+      return 'Invalid reset link', 403
+
+    return render_template('resetpassword.html', username=username, checksum=checksum)
+
+  if request.method == 'POST':
+    username = request.args.get('username')
+    checksum = request.args.get('checksum')
+    password = request.form.get('password')
+    
+    con = sqlite3.connect(DATABASE)
+    sql = con.cursor()
+    check_if_req_valid_query = 'SELECT validuntil FROM RESETPASSWD WHERE username == ? AND checksum == ?;'
+    sql.execute(check_if_req_valid_query, (username, checksum))
+    validuntil = sql.fetchone()
+    con.commit()
+
+    if not (validuntil and validuntil[0] > int(time.time())):
+      return 'Invalid reset link', 403
+
+    pw_check_valid = bool(search(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$', password))
+    if not pw_check_valid:
+      return 'Incorrect form data. Sumbit again, complying to restrictions.', 406
+
+    s = username.ljust(8, 'a').encode()
+    arg2 = argon2.using(salt=s, type='ID', memory_cost=65536, time_cost=3, parallelism=4)
+    password_argon2 = arg2.hash(password)
+
+    reset_password_query = 'UPDATE USERS SET password = ? WHERE username == ?;'
+    sql.execute(reset_password_query, (password_argon2, username))
+    con.commit()
+
+    remove_request_query = 'DELETE FROM RESETPASSWD WHERE username == ? AND checksum == ?;'
+    sql.execute(remove_request_query, (username, checksum))
+    con.commit()
+
+    con.close()
+    return redirect('/')
 
 
 @app.route("/dashboard", methods=['GET'])
@@ -263,6 +346,7 @@ if __name__ == '__main__':
   sql = con.cursor()
   sql.execute('CREATE TABLE IF NOT EXISTS USERS (username VARCHAR(32), email VARCHAR(96), password VARCHAR(128));')
   sql.execute('CREATE TABLE IF NOT EXISTS NOTES (id INTEGER PRIMARY KEY, public BOOLEAN, encrypted BOOLEAN, passphrase VARCHAR(128), username VARCHAR(32), title VARCHAR(32), note BLOB);')
+  sql.execute('CREATE TABLE IF NOT EXISTS RESETPASSWD (username VARCHAR(32), validuntil DATETIME, checksum VARCHAR(128));')
   con.commit()
   con.close()
   print('DATABASE INITIALISATION FINISHED')

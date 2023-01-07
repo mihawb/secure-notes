@@ -1,0 +1,17 @@
+<html>
+<body>
+	<h1>Request password reset</h1>
+	<p>If an account with such username or email exists, we will sent a reset link your way.</p>
+
+	<form action={{ url_for('requestreset') }} method="post">
+    <label for="reqinput">Username or email</label>
+    <input type="text" id="reqinput" name="reqinput"><br>
+
+    <input type="submit" value="Submit">
+  </form>
+
+	<form action={{ url_for('login') }}>
+		<input type="submit" value="Cancel and go back" />
+	</form>
+</body>
+</html>
