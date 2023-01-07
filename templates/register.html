@@ -64,13 +64,23 @@
         const infoe = document.getElementById('infoe')
         const emailPattern = /^.+@[a-zA-Z0-9\-]+(\.[a-zA-Z]+)+$/
 
-        if (emailPattern.test(email.value)) {
-          validEmail = true
-          infoe.innerText = ''
-        } else {
+        if (!emailPattern.test(email.value)) {
           validEmail = false
           infoe.innerText = 'Invalid email address'
+          return
         }
+
+        fetch(`${window.location.origin}/check/email?name=${email.value}`)
+        .then(res => res.text())
+        .then(body => {
+          if (body === 'F') {
+            validEmail = true
+            infoe.innerText = ''
+          } else {
+            validEmail = false
+            infoe.innerText = 'Email already assaigned to an account.'
+          }
+        })
 
         checkSubmitable()
       }

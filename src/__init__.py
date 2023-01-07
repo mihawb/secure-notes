@@ -112,18 +112,32 @@ def register():
     return redirect('/')
 
 
-@app.route('/user/check', methods=['GET']) # zamienic na /check/user i dodac drugi endpoint dla /check/email
-def check_if_user_exists():
+@app.route('/check/<field>', methods=['GET']) 
+def check_if_field_exists(field):
   if request.method == 'GET':
-    username = request.args.get('name')
+    name = request.args.get('name')
     con = sqlite3.connect(DATABASE)
     sql = con.cursor()
-    check_user_query = 'SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);'
-    sql.execute(check_user_query, (username,))
-    result = sql.fetchone()[0]
-    con.commit()
-    con.close()
 
+    # conditional in order to avoid querying
+    # SELECT ... FROM USERS WHERE ? = ?
+    # which would be amusingly easy to expoit
+    if field == 'user':
+      check_user_query = 'SELECT EXISTS(SELECT 1 FROM USERS WHERE username = ?);'
+      sql.execute(check_user_query, (name,))
+      result = sql.fetchone()[0]
+      con.commit()
+
+    elif field == 'email':
+      check_email_query = 'SELECT EXISTS(SELECT 1 FROM USERS WHERE email = ?);'
+      sql.execute(check_email_query, (name,))
+      result = sql.fetchone()[0]
+      con.commit()
+
+    else:
+      return 'Bad request', 400
+
+    con.close()
     if result: return 'T'
     else: return 'F'
 
