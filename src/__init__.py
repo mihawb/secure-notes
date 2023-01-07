@@ -152,16 +152,20 @@ def requestreset():
 
     con = sqlite3.connect(DATABASE)
     sql = con.cursor()
-    check_user_email_query = 'SELECT username FROM USERS WHERE username == ? OR email == ?;'
+    check_user_email_query = 'SELECT username, email FROM USERS WHERE username == ? OR email == ?;'
     sql.execute(check_user_email_query, (reqinput, reqinput))
-    username = sql.fetchone()
+    try:
+      username, email = sql.fetchone()
+    except:
+      username = None
+      email = None
     con.commit()
 
     if not username:
       return render_template('email.html')
 
     validuntil = int(time.time()) + 3600
-    username = username[0]
+    username = username
     checksum = md5_crypt.hash(f'{username}{validuntil}').split('$')[-1]
 
     save_reset_req_query = 'INSERT INTO RESETPASSWD (username, validuntil, checksum) VALUES (?, ?, ?);'
@@ -171,7 +175,7 @@ def requestreset():
     link = url_for('resetpassword', username=username, checksum=checksum)
 
     con.close()
-    return render_template('email.html', link=link)
+    return render_template('email.html', link=link, email=email)
 
 
 @app.route('/resetpassword', methods=['GET', 'POST'])
