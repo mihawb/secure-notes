@@ -3,10 +3,10 @@
   <form action={{ url_for('register') }} method="post">
 
     <label for="username">Username</label>
-    <input type="text" id="username" name="username"><span id="infou"></span><br>
+    <input type="text" id="username" name="username" maxlength="32"><span id="infou"></span><br>
 
     <label for="username">Email</label>
-    <input type="text" id="email" name="email"><span id="infoe"></span><br>
+    <input type="text" id="email" name="email" maxlength="96"><span id="infoe"></span><br>
 
     <label for="password">Password</label>
     <input type="password" id="password" name="password"><span id="infop"></span><br>

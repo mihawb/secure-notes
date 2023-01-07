@@ -5,6 +5,7 @@ from passlib.hash import argon2, md5_crypt
 from Crypto.Cipher import AES
 import sqlite3, markdown, bleach
 import os, requests, mimetypes, glob, time
+from threading import Event
 from re import search
 
 
@@ -15,6 +16,13 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 app.secret_key = os.getenv('APP_SECRET_KEY')
 DATABASE = './sqlite3.db'
+
+
+# Event.wait() method is non-blocking, as opposed to time.sleep()
+# timeout is applied only to bad requests, good folks don't have to wait
+def bad_request_timeout():
+  dummy_event = Event()
+  dummy_event.wait(timeout=0.5)
 
 
 class User(UserMixin):
@@ -59,10 +67,12 @@ def login():
     password = request.form.get('password')
 
     if not search(r'^[a-zA-Z0-9]+$', username):
+      bad_request_timeout()
       return 'Incorrect login or password', 401
 
     user = user_loader(username)
     if user is None:
+      bad_request_timeout()
       return 'Incorrect login or password', 401
 
     if argon2.verify(password, user.password):
@@ -70,6 +80,7 @@ def login():
       return redirect('/dashboard')
 
     else:
+      bad_request_timeout()
       return 'Incorrect login or password', 401
 
 
@@ -100,6 +111,7 @@ def register():
       un_check_taken = not bool(sql.fetchone()[0])
 
     if not (em_check_valid and pw_check_valid and un_check_valid and un_check_taken):
+      bad_request_timeout()
       return 'Incorrect form data. Sumbit again, complying to restrictions.', 406
 
     s = username.ljust(8, 'a').encode()
@@ -135,6 +147,7 @@ def check_if_field_exists(field):
       result = sql.fetchone()[0]
 
     else:
+      bad_request_timeout()
       return 'Bad request', 400
 
     con.close()
@@ -188,6 +201,7 @@ def resetpassword():
     validuntil = sql.fetchone()
 
     if not (validuntil and validuntil[0] > int(time.time())):
+      bad_request_timeout()
       return 'Invalid reset link', 403
 
     con.close()
@@ -205,10 +219,12 @@ def resetpassword():
     validuntil = sql.fetchone()
 
     if not (validuntil and validuntil[0] > int(time.time())):
+      bad_request_timeout()
       return 'Invalid reset link', 403
 
     pw_check_valid = bool(search(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$', password))
     if not pw_check_valid:
+      bad_request_timeout()
       return 'Incorrect form data. Sumbit again, complying to restrictions.', 406
 
     s = username.ljust(8, 'a').encode()
@@ -317,11 +333,13 @@ def render(user, rendered_id):
     con.close()
 
     if not public and username != current_user.id:
+      bad_request_timeout()
       return 'Access to note forbidden', 403
 
     return render_template('render.html', rendered_id=id_note, author=username, public=bool(public), encrypted=bool(encrypted), title=title, rendered_note=rendered_note)
   except:
     con.close()
+    bad_request_timeout()
     return 'Note not found', 404
 
 
@@ -344,9 +362,11 @@ def decrypt(user, rendered_id):
       return redirect(f'/render/{user}/{rendered_id}')
 
     if not public and username != current_user.id:
+      bad_request_timeout()
       return 'Access to note forbidden', 403
 
     if not argon2.verify(passphrase, passphrase_hash):
+      bad_request_timeout()
       return 'Access to note forbidden', 403
 
     block_length = 16 
@@ -357,6 +377,7 @@ def decrypt(user, rendered_id):
     return render_template('render.html', rendered_id=id_note, author=username, public=bool(public), encrypted=not bool(encrypted), title=title, rendered_note=decrypted_note)
   except:
     con.close()
+    bad_request_timeout()
     return 'Note not found', 404
 
 
