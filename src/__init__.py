@@ -3,26 +3,27 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_cors import CORS
 from passlib.hash import argon2, md5_crypt
 from Crypto.Cipher import AES
-import sqlite3, markdown, bleach
-import os, requests, mimetypes, glob, time
+import sqlite3, markdown, bleach, requests
+import os, mimetypes, glob, time
 from threading import Event
 from re import search
 
 
-template_dir = os.path.abspath('../templates')
+template_dir = os.path.abspath('./templates')
 app = Flask(__name__, template_folder=template_dir)
 CORS(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 app.secret_key = os.getenv('APP_SECRET_KEY')
-DATABASE = './sqlite3.db'
+DATABASE = os.path.abspath('./sqlite3.db')
+BANNERS = os.path.abspath('./banners')
 
 
 # Event.wait() method is non-blocking, as opposed to time.sleep()
 # timeout is applied only to bad requests, good folks don't have to wait
 def bad_request_timeout():
   dummy_event = Event()
-  dummy_event.wait(timeout=0.5)
+  dummy_event.wait(timeout=2)
 
 
 class User(UserMixin):
@@ -309,7 +310,7 @@ def create():
         if 'image' not in content_type: 
           raise ValueError('Supplied file is not an image')
         ext = mimetypes.guess_extension(content_type)
-        with open(f"../banners/banner_{username}_{scope_identity}{ext}", "wb") as f:
+        with open(f"{BANNERS}/banner_{username}_{scope_identity}{ext}", "wb") as f:
           f.write(res.content)
       except Exception as e:
         print('Could not save banner image:', e)
@@ -384,11 +385,11 @@ def decrypt(user, rendered_id):
 @app.route('/banner/<user>/<note_id>')
 @login_required
 def banner(user, note_id):
-  banners = glob.glob(f'../banners/banner_{user}_{note_id}.*')
+  banners = glob.glob(f'{BANNERS}/banner_{user}_{note_id}.*')
   try:
     return send_file(banners[0])
   except:
-    return send_file('../banners/banner_default.png')
+    return send_file(f'{BANNERS}/banner_default.png')
 
 
 if __name__ == '__main__':
