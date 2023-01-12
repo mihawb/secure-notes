@@ -153,7 +153,9 @@ def check_if_field_exists(field):
 
     con.close()
     if result: return 'T'
-    else: return 'F'
+    else: 
+      bad_request_timeout()
+      return 'F'
 
 
 @app.route('/requestreset', methods=['GET', 'POST'])
