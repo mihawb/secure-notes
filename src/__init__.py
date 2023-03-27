@@ -3,6 +3,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_cors import CORS
 from passlib.hash import argon2, md5_crypt
 from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
 import sqlite3, markdown, bleach, requests
 import os, mimetypes, glob, time
 from threading import Event
@@ -61,6 +62,7 @@ def request_loader(request):
 @app.route('/', methods=['GET', 'POST'])
 def login():
   if request.method == 'GET':
+    print(app.secret_key)
     return render_template('login.html')
 
   if request.method == "POST":
@@ -115,7 +117,7 @@ def register():
       bad_request_timeout()
       return 'Incorrect form data. Sumbit again, complying to restrictions.', 406
 
-    s = username.ljust(8, 'a').encode()
+    s = get_random_bytes(16)
     arg2 = argon2.using(salt=s, type='ID', memory_cost=65536, time_cost=3, parallelism=4)
     password_argon2 = arg2.hash(password)
 
@@ -180,7 +182,7 @@ def requestreset():
       return render_template('email.html')
 
     validuntil = int(time.time()) + 3600
-    checksum = md5_crypt.hash(f'{username}{validuntil}').split('$')[-1]
+    checksum = md5_crypt.hash(get_random_bytes(16)).split('$')[-1]
 
     save_reset_req_query = 'INSERT INTO RESET (username, validuntil, checksum) VALUES (?, ?, ?);'
     sql.execute(save_reset_req_query, (username, validuntil, checksum))
@@ -278,7 +280,7 @@ def create():
     source_md = request.form.get('markdown', '')
     bleached_md = bleach.clean(source_md)
     rendered = markdown.markdown(bleached_md)
-    result_note = rendered # in case of encryption later on
+    result_note = rendered # in case of lack of encryption later on
     banner_url = request.form.get('banner')
 
     if passphrase:
