@@ -387,6 +387,15 @@ def decrypt(user, rendered_id):
 @app.route('/banner/<user>/<note_id>')
 @login_required
 def banner(user, note_id):
+  check_if_public_note_query = 'SELECT public FROM NOTES WHERE id = ?;'
+  sql.execute(check_if_public_note_query, (note_id,))
+  public = sql.fetchone()
+
+  # note exists and is private and wrong user (existence check to allow default banner)
+  if public and not public[0] and user != current_user.id:
+    bad_request_timeout()
+    return 'Access to banner forbidden', 403
+
   banners = glob.glob(f'{BANNERS}/banner_{user}_{note_id}.*')
   try:
     return send_file(banners[0])
